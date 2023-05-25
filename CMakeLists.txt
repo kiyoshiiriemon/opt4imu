@@ -64,3 +64,8 @@ add_executable(foot_mounted_test
         src/foot_mounted_test.cpp
 )
 
+add_executable(dual_foot_mounted_test
+        src/imutrj_optimizer.cpp
+        src/dual_foot_mounted_test.cpp
+)
+

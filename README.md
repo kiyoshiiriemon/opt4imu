@@ -1,8 +1,8 @@
 # opt4imu : toolkit for IMU-based motion estimation
 
 References:
-- “ü]´, opt4imu: ƒOƒ‰ƒtƒx[ƒXÅ“K‰»‚É‚æ‚éIMU‰^“®„’è‚Ìƒ\ƒtƒgƒEƒFƒAƒ‰ƒCƒuƒ‰ƒŠ, ROBOMECH2023
-- “ü]´, Š‹¼—zŠì, ŽRèŒör, Å“K‰»ƒAƒvƒ[ƒ`‚ÉŠî‚Ã‚­—¼ŒC‘•’…IMU‚©‚ç‚Ì•às‰^“®„’è, ƒƒ{ƒeƒBƒNƒXƒVƒ“ƒ|ƒWƒA2023
-- “ü]´, IMU-’PŠáƒJƒƒ‰•¡‡ƒ‚[ƒVƒ‡ƒ“ƒLƒƒƒvƒ`ƒƒƒVƒXƒeƒ€‚Ì‚½‚ß‚ÌIMUZ³Žè–@, SI2020
+- å…¥æ±Ÿæ¸…, opt4imu: ã‚°ãƒ©ãƒ•ãƒ™ãƒ¼ã‚¹æœ€é©åŒ–ã«ã‚ˆã‚‹IMUé‹å‹•æŽ¨å®šã®ã‚½ãƒ•ãƒˆã‚¦ã‚§ã‚¢ãƒ©ã‚¤ãƒ–ãƒ©ãƒª, ROBOMECH2023
+- å…¥æ±Ÿæ¸…, è‘›è¥¿é™½å–œ, å±±å´Žå…¬ä¿Š, æœ€é©åŒ–ã‚¢ãƒ—ãƒ­ãƒ¼ãƒã«åŸºã¥ãä¸¡é´è£…ç€IMUã‹ã‚‰ã®æ­©è¡Œé‹å‹•æŽ¨å®š, ãƒ­ãƒœãƒ†ã‚£ã‚¯ã‚¹ã‚·ãƒ³ãƒã‚¸ã‚¢2023
+- å…¥æ±Ÿæ¸…, IMU-å˜çœ¼ã‚«ãƒ¡ãƒ©è¤‡åˆãƒ¢ãƒ¼ã‚·ãƒ§ãƒ³ã‚­ãƒ£ãƒ—ãƒãƒ£ã‚·ã‚¹ãƒ†ãƒ ã®ãŸã‚ã®IMUæ ¡æ­£æ‰‹æ³•, SI2020
 - Kiyoshi Irie, A loop-closure-based inertial motion capture, with application to sports swing measurements, SII2020
 

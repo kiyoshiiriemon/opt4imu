@@ -23,8 +23,8 @@ using Con3DList = std::vector<Con3D>;
 
 class ImuTrjOptimizer
 {
-    using Trj9D = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 public:
+    using Trj9D = Eigen::Matrix<double, 9, Eigen::Dynamic>;
     ImuTrjOptimizer();
     void setImuLog(const IMULog &in_log, double init_dur = -1) {
         imulog = in_log;
