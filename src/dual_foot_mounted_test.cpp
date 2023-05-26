@@ -7,7 +7,6 @@
  ****************************************************************************/
 
 #include <graph_gn_so3.hpp>
-#include <graph_gn_lin3.hpp>
 #include <graph_gn_se3.hpp>
 #include <imulog.hpp>
 #include <imutrj_optimizer.hpp>
@@ -45,7 +44,7 @@ static void detect_stationary(const IMULog &imulog, std::vector<int> &out_statio
     for (int i=0; i<imu_movavg.size(); ++i) {
         const auto &imu = imu_movavg[i];
         bool is_stationary = false;
-        std::cout << imu.linear_acceleration << std::endl;
+        //std::cout << imu.linear_acceleration << std::endl;
         if (imu.angular_velocity.norm() < 0.5 && fabs(imu.linear_acceleration.norm()-9.8) < 0.5) {
             is_stationary = true;
         } else {
@@ -69,7 +68,10 @@ static void detect_stationary(const IMULog &imulog, std::vector<int> &out_statio
 ImuTrjOptimizer process_single_feet(const char *fname)
 {
     IMULog imulog;
-    imulog.loadImuFile(fname, -1, -1);
+    if (!imulog.loadImuFile(fname, -1, -1)) {
+        std::cerr << "failed to load " << fname << std::endl;
+        exit(1);
+    }
     if (imulog.data[0].header.stamp.sec == 0)
         imulog.setUniformTimeStamp(2*1000);
     std::cout << "load " << imulog.data.size() << std::endl;
@@ -91,75 +93,67 @@ ImuTrjOptimizer process_single_feet(const char *fname)
     return opt;
 }
 
-static std::vector<int> load_stationary_flags(const char *fname, Con3DList &con_vel)
+NodeList process_dual_foot_mounted(ImuTrjOptimizer &opt_r, ImuTrjOptimizer &opt_l)
 {
-    std::vector<int> ret;
-    std::ifstream is(fname);
-
-    int id=0;
-    while(is){
-        int is_stationary;
-        char buf[1024];
-        is.getline(buf,1024);
-        if (!is) break;
-        std::istringstream sstrm(buf);
-        sstrm >> is_stationary;
-        if (is_stationary) {
-            Con3D con;
-            ret.push_back(is_stationary);
-            if (id > 0) {
-                con.id1 = 0;
-                con.id2 = id;
-                con.t = Vec3D::Zero();
-                con.info = Mat3D::Identity();
-                con_vel.push_back(con);
-            }
-        }
-        id++;
-    }
-    return ret;
-}
-
-ImuTrjOptimizer::Trj9D process_dual_feet(ImuTrjOptimizer &opt_r, ImuTrjOptimizer &opt_l)
-{
-    ImuTrjOptimizer::Trj9D ret;
-    Pose3DVec nodes;
+    Pose3DVec p3dnodes;
     Con6DVec constraints;
     size_t len_r = opt_r.trj.cols();
     size_t len_l = opt_l.trj.cols();
+    std::cout << "len: " << len_r << "  " << len_l << std::endl;
     size_t len_min = std::min<size_t>(len_r, len_l);
 
+    std::ofstream ofs("dual_foot.g2o");
     for(int i=0; i<len_min; ++i) {
         Pose3D node(opt_r.pos(i), RotVec(opt_r.att(i)));
-        nodes.push_back(node);
-        Con6D con;
-        con.id1 = i;
-        con.id2 = i+1;
-        con.t = nodes[con.id2].ominus(nodes[con.id1]).vec();
-        con.setCovarianceMatrix(Mat6D::Identity());
-        constraints.push_back(con);
+        p3dnodes.push_back(node);
+        Eigen::Quaterniond q = node.rv.toQuaternion();
+        ofs << "VERTEX_SE3:QUAT " << i << " " << node.x << " " << node.y << " " << node.z << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << std::endl;
     }
     for(int i=0; i<len_min; ++i) {
         Pose3D node(opt_l.pos(i), RotVec(opt_l.att(i)));
-        nodes.push_back(node);
-
-        Con6D con;
-        con.id1 = i + len_min;
-        con.id2 = i+1 + len_min;
-        con.t = nodes[con.id2].ominus(nodes[con.id1]).vec();
-        con.setCovarianceMatrix(Mat6D::Identity());
-        constraints.push_back(con);
+        p3dnodes.push_back(node);
+        Eigen::Quaterniond q = node.rv.toQuaternion();
+        ofs << "VERTEX_SE3:QUAT " << i+len_min << " " << node.x << " " << node.y << " " << node.z << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << std::endl;
     }
 
+    for(int i=0; i<len_min-1; ++i) {
+        Con6D con;
+        con.id1 = i;
+        con.id2 = i + 1;
+        con.t = p3dnodes[con.id2].ominus(p3dnodes[con.id1]).vec();
+        con.info = Mat6D::Identity();
+        constraints.push_back(con);
+
+        con.id1 = i + len_min;
+        con.id2 = i + 1 + len_min;
+        con.t = p3dnodes[con.id2].ominus(p3dnodes[con.id1]).vec();
+        con.info = Mat6D::Identity();
+        constraints.push_back(con);
+    }
     for(int i=0; i<len_min; ++i) {
         Con6D con;
         con.id1 = i;
         con.id2 = i+len_min;
-        con.t = Pose3D(0, -0.15, 0, RotVec(0, 0, 0)).vec();
-        con.setCovarianceMatrix(Mat6D::Identity());
+        con.t = Pose3D(0, 0.15, 0, RotVec(0, 0, 0)).vec();
+        con.info = Mat6D::Identity()*1e-9;
         constraints.push_back(con);
     }
-    return ret;
+    for(const auto &c : constraints) {
+        auto q = RotVec(c.t.tail(3)).toQuaternion();
+        ofs << "EDGE_SE3:QUAT " << c.id1 << " " << c.id2 << " ";
+        ofs << c.t.head(3).transpose() << " ";
+        ofs << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << " ";
+        ofs << c.info.diagonal().transpose() << std::endl;
+    }
+    GraphGNSE3 opt;
+    opt.verbose = true;
+    NodeList nodes(6, p3dnodes.size());
+    for(int i=0; i<nodes.cols(); ++i) {
+        nodes.col(i) = p3dnodes[i].vec();
+    }
+    opt.max_steps = 10;
+    NodeList result = opt.optimize(nodes, constraints);
+    return result;
 }
 
 int main(int argc, char *argv[])
@@ -171,5 +165,9 @@ int main(int argc, char *argv[])
     Con3DList con_vel;
     ImuTrjOptimizer opt_r = process_single_feet(argv[1]);
     ImuTrjOptimizer opt_l = process_single_feet(argv[2]);
+    auto nodelist = process_dual_foot_mounted(opt_r, opt_l);
+    std::ofstream ofs("est_dual_foot.txt");
+    ofs << nodelist.transpose() << std::endl;
+
     return 0;
 }
