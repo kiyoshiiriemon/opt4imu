@@ -8,6 +8,7 @@
 
 #include <graph_gn_so3.hpp>
 #include <graph_gn_lin3.hpp>
+#include <graph_gn_se3.hpp>
 #include <imulog.hpp>
 #include <imutrj_optimizer.hpp>
 
@@ -65,7 +66,7 @@ static void detect_stationary(const IMULog &imulog, std::vector<int> &out_statio
     }
 }
 
-ImuTrjOptimizer::Trj9D process_single_feet(const char *fname)
+ImuTrjOptimizer process_single_feet(const char *fname)
 {
     IMULog imulog;
     imulog.loadImuFile(fname, -1, -1);
@@ -87,7 +88,7 @@ ImuTrjOptimizer::Trj9D process_single_feet(const char *fname)
     auto elapsed = std::chrono::duration_cast< std::chrono::microseconds> (t1-t0);
     std::cout << " time: " << elapsed.count()*1e-6 << "s" << std::endl;
     opt.writeTrj("est.txt");
-    return opt.trj;
+    return opt;
 }
 
 static std::vector<int> load_stationary_flags(const char *fname, Con3DList &con_vel)
@@ -119,6 +120,48 @@ static std::vector<int> load_stationary_flags(const char *fname, Con3DList &con_
     return ret;
 }
 
+ImuTrjOptimizer::Trj9D process_dual_feet(ImuTrjOptimizer &opt_r, ImuTrjOptimizer &opt_l)
+{
+    ImuTrjOptimizer::Trj9D ret;
+    Pose3DVec nodes;
+    Con6DVec constraints;
+    size_t len_r = opt_r.trj.cols();
+    size_t len_l = opt_l.trj.cols();
+    size_t len_min = std::min<size_t>(len_r, len_l);
+
+    for(int i=0; i<len_min; ++i) {
+        Pose3D node(opt_r.pos(i), RotVec(opt_r.att(i)));
+        nodes.push_back(node);
+        Con6D con;
+        con.id1 = i;
+        con.id2 = i+1;
+        con.t = nodes[con.id2].ominus(nodes[con.id1]).vec();
+        con.setCovarianceMatrix(Mat6D::Identity());
+        constraints.push_back(con);
+    }
+    for(int i=0; i<len_min; ++i) {
+        Pose3D node(opt_l.pos(i), RotVec(opt_l.att(i)));
+        nodes.push_back(node);
+
+        Con6D con;
+        con.id1 = i + len_min;
+        con.id2 = i+1 + len_min;
+        con.t = nodes[con.id2].ominus(nodes[con.id1]).vec();
+        con.setCovarianceMatrix(Mat6D::Identity());
+        constraints.push_back(con);
+    }
+
+    for(int i=0; i<len_min; ++i) {
+        Con6D con;
+        con.id1 = i;
+        con.id2 = i+len_min;
+        con.t = Pose3D(0, -0.15, 0, RotVec(0, 0, 0)).vec();
+        con.setCovarianceMatrix(Mat6D::Identity());
+        constraints.push_back(con);
+    }
+    return ret;
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2) {
@@ -126,7 +169,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     Con3DList con_vel;
-    ImuTrjOptimizer::Trj9D trj_r = process_single_feet(argv[1]);
-    ImuTrjOptimizer::Trj9D trj_l = process_single_feet(argv[2]);
+    ImuTrjOptimizer opt_r = process_single_feet(argv[1]);
+    ImuTrjOptimizer opt_l = process_single_feet(argv[2]);
     return 0;
 }
