@@ -13,6 +13,18 @@
 
 using namespace opt4imu;
 
+static Eigen::VectorXd extract_upper_right(const Mat6D &info)
+{
+    Eigen::VectorXd ret(21);
+    int idx = 0;
+    for (int i=0; i<6; ++i) {
+        for (int j=i; j<6; ++j) {
+            ret[idx++] = info(i, j);
+        }
+    }
+    return ret;
+}
+
 std::vector<Imu> movingAverageAccGyro(const std::vector<Imu> &data, int window_size) {
     std::vector<Imu> ret;
     ret.reserve(data.size());
@@ -102,6 +114,8 @@ NodeList process_dual_foot_mounted(ImuTrjOptimizer &opt_r, ImuTrjOptimizer &opt_
     std::cout << "len: " << len_r << "  " << len_l << std::endl;
     size_t len_min = std::min<size_t>(len_r, len_l);
 
+    p3dnodes.reserve(len_r+len_l);
+    p3dnodes.emplace_back(0, 0, 0, 0, 0, 0); // node id=0
     std::ofstream ofs("dual_foot.g2o");
     for(int i=0; i<len_min; ++i) {
         Pose3D node(opt_r.pos(i), RotVec(opt_r.att(i)));
@@ -116,7 +130,7 @@ NodeList process_dual_foot_mounted(ImuTrjOptimizer &opt_r, ImuTrjOptimizer &opt_
         ofs << "VERTEX_SE3:QUAT " << i+len_min << " " << node.x << " " << node.y << " " << node.z << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << std::endl;
     }
 
-    for(int i=0; i<len_min-1; ++i) {
+    for(int i=1; i<len_min; ++i) {
         Con6D con;
         con.id1 = i;
         con.id2 = i + 1;
@@ -130,20 +144,30 @@ NodeList process_dual_foot_mounted(ImuTrjOptimizer &opt_r, ImuTrjOptimizer &opt_
         con.info = Mat6D::Identity();
         constraints.push_back(con);
     }
-    for(int i=0; i<len_min; ++i) {
+    // left-right relative pose constraint
+    auto rel_r2l = Pose3D(0, -0.15, 0, p3dnodes[len_min].rv).ominus(Pose3D(0, 0, 0, p3dnodes[1].rv)).vec();
+    for(int i=1; i<len_min+1; ++i) {
         Con6D con;
         con.id1 = i;
         con.id2 = i+len_min;
-        con.t = Pose3D(0, 0.15, 0, RotVec(0, 0, 0)).vec();
+        con.t = rel_r2l;
         con.info = Mat6D::Identity()*1e-9;
         constraints.push_back(con);
+    }
+    {
+        // initial pose constraint
+        Con6D con;
+        con.id1 = 0;
+        con.id2 = 1;
+        con.t = Pose3D(0, 0, 0, p3dnodes[1].rv).vec();
+        con.info = Mat6D::Identity()*1e-9;
     }
     for(const auto &c : constraints) {
         auto q = RotVec(c.t.tail(3)).toQuaternion();
         ofs << "EDGE_SE3:QUAT " << c.id1 << " " << c.id2 << " ";
         ofs << c.t.head(3).transpose() << " ";
         ofs << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << " ";
-        ofs << c.info.diagonal().transpose() << std::endl;
+        ofs << extract_upper_right(c.info).transpose() << std::endl;
     }
     GraphGNSE3 opt;
     opt.verbose = true;
@@ -166,8 +190,13 @@ int main(int argc, char *argv[])
     ImuTrjOptimizer opt_r = process_single_feet(argv[1]);
     ImuTrjOptimizer opt_l = process_single_feet(argv[2]);
     auto nodelist = process_dual_foot_mounted(opt_r, opt_l);
-    std::ofstream ofs("est_dual_foot.txt");
-    ofs << nodelist.transpose() << std::endl;
+    {
+        std::ofstream ofs_r("est_dual_foot_r.txt");
+        std::ofstream ofs_l("est_dual_foot_l.txt");
+        size_t len = (nodelist.cols() - 1) / 2;
+        ofs_r << nodelist(Eigen::all, Eigen::seq(1, len)).transpose() << std::endl;
+        ofs_l << nodelist(Eigen::all, Eigen::seq(len + 1, len * 2)).transpose() << std::endl;
+    }
 
     return 0;
 }
