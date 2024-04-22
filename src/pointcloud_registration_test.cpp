@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2023 Kiyoshi Irie
+ * Copyright (C) 2023-2024 Kiyoshi Irie
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
@@ -11,7 +11,6 @@
 #include <Eigen/Dense>
 #include "geom3d.hpp"
 
-template <typename T>
 class GaussNewtonOptimizer
 {
     // calculate least-squares
@@ -37,6 +36,8 @@ public:
         size_t dim = s_in.size();
         Eigen::MatrixXd mat(dim, dim);
         Eigen::VectorXd bf(dim);
+        mat.setZero();
+        bf.setZero();
         Jac jac;
         for (size_t i=0; i<num; ++i) {
             Eigen::VectorXd err;
@@ -44,23 +45,38 @@ public:
                 err = error_func(i, s_in, jac);
                 mat.noalias() += jac.transpose() * jac;
                 bf.noalias()  += jac.transpose() * err;
-
-                std::cout << err << std::endl;
-                //std::cout << "=== jac, numjac ===" << std::endl;
+#if 0 // debug jecobian matrix
+                std::cout << "=== jac, numjac ===" << std::endl;
                 std::cout << jac << std::endl;
                 double eps = 1e-4;
                 err = error_func_nojac(i, s_in);
-                std::cout << err << std::endl;
                 jac.resize(err.rows(), dim);
-                for(size_t i=0; i<dim; ++i) {
+                for(size_t j=0; j<dim; ++j) {
                     State d(dim); d.setZero();
-                    d(i) += eps;
+                    d(j) += eps;
                     auto s = oplus_func(s_in, d);
                     opt4imu::Vec3D v = (error_func_nojac(i, s) - err)/eps;
-                    std::cout << v << std::endl;
-                    jac.block(0,i,err.rows(),1) = v;
+                    jac.block(0,j,err.rows(),1) = v;
                 }
                 std::cout << jac << std::endl;
+                mat.noalias() += jac.transpose() * jac;
+                bf.noalias()  += jac.transpose() * err;
+#endif
+            } else {
+                double eps = 1e-4;
+                err = error_func_nojac(i, s_in);
+                //std::cout << err << std::endl;
+                jac.resize(err.rows(), dim);
+                for(size_t j=0; j<dim; ++j) {
+                    State d(dim); d.setZero();
+                    d(j) += eps;
+                    auto s = oplus_func(s_in, d);
+                    opt4imu::Vec3D v = (error_func_nojac(i, s) - err)/eps;
+                    //std::cout << v << std::endl;
+                    jac.block(0,j,err.rows(),1) = v;
+                }
+                mat.noalias() += jac.transpose() * jac;
+                bf.noalias()  += jac.transpose() * err;
             }
             ret += err.transpose()*err;
         }
@@ -115,60 +131,58 @@ auto generate_points(size_t npoints)
     return ret;
 }
 
-auto transform_points(const Eigen::Matrix3Xd &org, const opt4imu::Pose3D &trans)
+Eigen::Matrix3Xd transform_points(const Eigen::Matrix3Xd &points, const opt4imu::Pose3D &trans)
 {
-    auto tra = trans.rv.toRotationMatrix() * org;
-    return tra;
+    Eigen::Matrix4Xd ext_points(4, points.cols());
+    ext_points.topRows(3) = points;
+    ext_points.row(3).setOnes();
+    Eigen::Matrix4d T = trans.toMatrix();
+    Eigen::Matrix4Xd trans_points = T * ext_points;
+    return trans_points.topRows(3);
 }
 
-void register_points(const Eigen::Matrix3Xd &org, const Eigen::Matrix3Xd &trans)
+void register_points(const Eigen::Matrix3Xd &org, const Eigen::Matrix3Xd &dest)
 {
-    GaussNewtonOptimizer<opt4imu::Vec3D> optim;
-    std::vector<opt4imu::Vec3D> data;
-    for(size_t i=0; i<org.cols(); ++i) {
-        data.push_back(trans.col(i));
-    }
+    GaussNewtonOptimizer optim;
+    opt4imu::Mat3D Rx, Ry, Rz;
+    Rx << 0, 0, 0, 0, 0,-1, 0, 1, 0;
+    Ry << 0, 0, 1, 0, 0, 0,-1, 0, 0;
+    Rz << 0,-1, 0, 1, 0, 0, 0, 0, 0;
     optim.error_func_nojac = [=](size_t i, const Eigen::VectorXd &state)->opt4imu::Vec3D {
-        opt4imu::RotVec rv(state);
+        Eigen::Vector3d t(state.head(3));
+        opt4imu::RotVec rv(state.tail(3));
         auto p = org.col(i);
-        opt4imu::Vec3D ret = rv.toRotationMatrix()*p - trans.col(i);
-        //std::cout << "nojac_err: " << ret << std::endl;
+        opt4imu::Vec3D ret = rv.toRotationMatrix()*p + t - dest.col(i);
         return ret;
     };
 #if 1
     optim.error_func = [=](size_t i, const Eigen::VectorXd &state, Eigen::MatrixXd &jac)->opt4imu::Vec3D {
-        opt4imu::RotVec rv(state);
-        opt4imu::Mat3D Rx, Ry, Rz;
-        Rx << 0, 0, 0, 0, 0,-1, 0, 1, 0;
-        Ry << 0, 0, 1, 0, 0, 0,-1, 0, 0;
-        Rz << 0,-1, 0, 1, 0, 0, 0, 0, 0;
+        Eigen::Vector3d t(state.head(3));
+        opt4imu::RotVec rv(state.tail(3));
         auto R0 = rv.toRotationMatrix();
         auto p = org.col(i);
-        auto tp = R0 * p;
-        jac.resize(3,3);
-        jac << R0*Rx*p, R0*Ry*p, R0*Rz*p;
-        opt4imu::Vec3D ret = tp-trans.col(i);
-        //std::cout << "tp: " << tp<< std::endl;
-        //std::cout << "p: " << p << std::endl;
-        //std::cout << "err: " << ret << std::endl;
+        jac.resize(3,6);
+        jac << R0, R0*Rx*p, R0*Ry*p, R0*Rz*p;
+        opt4imu::Vec3D ret = R0 * p + t - dest.col(i);
         return ret;
     };
 #endif
     optim.oplus_func = [](const Eigen::VectorXd &l, const Eigen::VectorXd &r) {
-        auto p = opt4imu::RotVec::concat_rv(l, r);
-        //std::cout << "oplus: " << p.transpose() << std::endl;
+        auto p = opt4imu::Pose3D(l).oplus(opt4imu::Pose3D(r)).vec();
         return p;
     };
     optim.verbose = true;
-    auto ret = optim.optimize(opt4imu::Vec3D(0,0,0), data.size());
-    std::cout << "result: " << ret << std::endl;
+    auto ret = optim.optimize(opt4imu::Vec6D(0,0,0, 0, 0, 0), org.cols());
+    std::cout << "result: " << ret.transpose() << std::endl;
 }
 
 void test_registration()
 {
-    Eigen::Matrix3Xd org = generate_points(100);
-    opt4imu::Pose3D p3d(1, -2, 3, -0.2, 0.05, 0.15);
-    auto trans = transform_points(org, p3d);
+    Eigen::Matrix3Xd org = generate_points(10000);
+    opt4imu::Pose3D p3d(1.7, -2.2, 3.57, -0.24, 0.05, 0.18);
+    Eigen::Matrix3Xd trans = transform_points(org, p3d) + 0.1*Eigen::Matrix3Xd::Random(3, org.cols());
+    //std::cout << org << std::endl;
+    //std::cout << trans << std::endl;
     register_points(org, trans);
 }
 
