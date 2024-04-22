@@ -297,7 +297,7 @@ struct Pose3D
     {
         return Pose3D(a).oplus(Pose3D(b)).vec();
     }
-    Eigen::Matrix<double,4,4> toMatrix() {
+    Eigen::Matrix<double,4,4> toMatrix() const {
         Eigen::Matrix<double,4,4> mat;
         mat.setIdentity();
         mat.block<3,3>(0,0) = rv.toRotationMatrix();

@@ -51,11 +51,11 @@ target_link_libraries(monocam_loop_closure_test
     Eigen3::Eigen
 )
 
-add_executable(test_registration
-        src/test_registration.cpp
+add_executable(pointcloud_registration_test
+        src/pointcloud_registration_test.cpp
 )
 
-target_link_libraries(test_registration
+target_link_libraries(pointcloud_registration_test
         Eigen3::Eigen
 )
 
